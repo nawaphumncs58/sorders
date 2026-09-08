@@ -76,23 +76,42 @@ npm run dev
    ```bash
    firebase deploy --only firestore:rules,firestore:indexes
    ```
+   (Run this from a machine with normal internet access — Firebase CLI
+   auth needs to reach Google's OAuth endpoints, which a locked-down
+   CI/agent sandbox typically blocks.)
 
 ### 2. First Admin account + demo data
 
 There's no signup form (all staff accounts are created by an Admin from
-`/admin`) — so the very first Admin has to be created from the CLI:
+`/admin`) — so the very first Admin has to be created some other way.
+Two options:
+
+**Option A — the seed script (recommended, also adds demo menu data):**
 
 1. Firebase Console → Project settings → Service accounts → **Generate new
    private key** → save the downloaded file as `serviceAccountKey.json` in
-   the project root (already gitignored, never commit it).
+   the project root (already gitignored, never commit it — and treat this
+   file as a secret: it's full admin access to the Firebase project, not
+   just this app).
 2. ```bash
    npm run seed -- --email you@example.com --password "Str0ngPass!" --name "Owner"
    ```
    This creates your Admin login and a few demo categories/menu
    items/tables so you have something to click through immediately. Safe
-   to re-run.
-3. Log in at `/login` with that account → you'll land on `/admin`, where
-   you can create the real kitchen/server/manager accounts.
+   to re-run. Must be run from a machine with normal internet access —
+   it won't work from a network-restricted CI/agent sandbox.
+
+**Option B — entirely by hand in the Firebase Console (no CLI needed):**
+
+1. **Authentication** → Users → **Add user** → enter an email + password.
+   Copy the generated **User UID**.
+2. **Firestore Database** → Start collection `users` → document id = that
+   UID → add fields: `email` (string), `displayName` (string), `role`
+   (string, value `admin`), `active` (boolean, `true`).
+3. Log in at `/login` with that email/password.
+
+Either way, once you're in as Admin (`/admin`), you can create the real
+kitchen/server/manager accounts from the UI.
 
 ### 3. Try the customer flow
 
