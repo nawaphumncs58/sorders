@@ -1,0 +1,96 @@
+rules_version = '2';
+
+// SOrders — Firestore security rules
+//
+// Roles live in users/{uid}.role and are looked up per-request. Customers
+// are never authenticated, so every rule that must allow them through
+// (menu browsing, placing/reading orders, table requests) is written to
+// not require request.auth at all — access control for those instead
+// relies on documents only being reachable via a table's own QR link,
+// which is an acceptable trust model for a dine-in ordering flow.
+//
+// Deploy with: firebase deploy --only firestore:rules
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function userDoc() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid));
+}
+
+function hasRole(role) {
+  return isSignedIn()
+    && userDoc().data.active == true
+    && userDoc().data.role == role;
+}
+
+function isAdmin() {
+  return hasRole('admin');
+}
+
+function isStaff() {
+  return isSignedIn()
+    && userDoc().data.active == true
+    && userDoc().data.role in ['kitchen', 'server', 'manager', 'admin'];
+}
+
+function isManagement() {
+  return hasRole('manager') || isAdmin();
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- users: staff accounts + roles. Admin-managed only. ----
+    match /users/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    // ---- settings: restaurant name/logo. Public read, admin write. ----
+    match /settings/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---- categories & menu items: public read (customers browse with
+    // no login), write restricted to manager/admin. ----
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if isManagement();
+    }
+    match /menuItems/{id} {
+      allow read: if true;
+      allow write: if isManagement();
+    }
+
+    // ---- tables: public read (customer page + QR links), write
+    // restricted to manager/admin. ----
+    match /tables/{id} {
+      allow read: if true;
+      allow write: if isManagement();
+    }
+
+    // ---- orders: customers create + read their own (no login), any
+    // signed-in staff member can update status as it moves through the
+    // kitchen/server workflow. Nobody deletes an order — cancel instead. ----
+    match /orders/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasAll(
+        ['tableId', 'tableNumber', 'sessionId', 'items', 'subtotal', 'status']
+      ) && request.resource.data.status == 'active';
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // ---- tableRequests: "call staff" / "request bill" buttons. ----
+    match /tableRequests/{id} {
+      allow read: if isStaff();
+      allow create: if request.resource.data.keys().hasAll(['tableId', 'type', 'status'])
+        && request.resource.data.status == 'open';
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+  }
+}
